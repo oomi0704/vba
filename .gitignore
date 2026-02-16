@@ -19,3 +19,13 @@ Thumbs.db
 # ローカル設定スクリプト（GitHubにアップロードしない）
 fix-github-contributions.sh
 setup-github.sh
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Excel 出力ファイル（必要に応じて）
+# output.xlsx
+# xlwings_output.xlsx
