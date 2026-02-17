@@ -152,6 +152,315 @@ Sub SendEmail()
 End Sub
 
 ' ============================================
+' セルのデータを取得してメールを作成（Mac/Windows対応版）
+' mailto:リンクを使用（どの環境でも動作）
+' エラーハンドリングと空セルチェック付き
+' ============================================
+Sub CreateEmailFromCells()
+    On Error GoTo ErrorHandler
+    
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+    
+    ' セルからデータを取得
+    Dim recipient As String
+    Dim subject As String
+    Dim name As String
+    Dim amount As Variant
+    Dim dateValue As Variant
+    
+    ' セルの位置を指定（必要に応じて変更）
+    recipient = Trim(ws.Range("B2").Value)  ' 宛先
+    subject = Trim(ws.Range("B3").Value)     ' 件名
+    name = Trim(ws.Range("B4").Value)        ' 名前
+    amount = ws.Range("B5").Value            ' 金額
+    dateValue = ws.Range("B6").Value        ' 日付
+    
+    ' 必須項目のチェック
+    If recipient = "" Then
+        MsgBox "エラー: B2セル（宛先）が空です。", vbExclamation, "入力エラー"
+        Exit Sub
+    End If
+    
+    If subject = "" Then
+        MsgBox "エラー: B3セル（件名）が空です。", vbExclamation, "入力エラー"
+        Exit Sub
+    End If
+    
+    If name = "" Then
+        MsgBox "エラー: B4セル（名前）が空です。", vbExclamation, "入力エラー"
+        Exit Sub
+    End If
+    
+    ' メール本文を作成
+    Dim bodyText As String
+    bodyText = name & " 様" & vbCrLf & vbCrLf
+    bodyText = bodyText & "お世話になっております。" & vbCrLf & vbCrLf
+    bodyText = bodyText & "以下の内容をご確認ください。" & vbCrLf & vbCrLf
+    
+    ' 金額が入力されている場合のみ表示
+    If IsNumeric(amount) And amount <> "" Then
+        bodyText = bodyText & "金額: " & Format(amount, "#,##0") & "円" & vbCrLf
+    End If
+    
+    ' 日付が入力されている場合のみ表示
+    If IsDate(dateValue) And dateValue <> "" Then
+        bodyText = bodyText & "日付: " & Format(dateValue, "yyyy年mm月dd日") & vbCrLf
+    End If
+    
+    bodyText = bodyText & vbCrLf & "よろしくお願いいたします。"
+    
+    ' mailto:リンクを作成
+    Dim mailtoLink As String
+    mailtoLink = "mailto:" & recipient & "?subject=" & EncodeURL(subject) & "&body=" & EncodeURL(bodyText)
+    
+    ' デフォルトのメールアプリで開く
+    #If Mac Then
+        ' Macの場合: AppleScriptを使用（1行形式）
+        Dim script As String
+        ' 引用符をエスケープ
+        Dim escapedLink As String
+        escapedLink = Replace(mailtoLink, """", "\""")
+        script = "tell application ""System Events"" to open location """ & escapedLink & """"
+        MacScript script
+    #Else
+        ' Windowsの場合: ShellExecuteを使用
+        Shell "cmd /c start """ & mailtoLink & """", vbHide
+    #End If
+    
+    MsgBox "メールアプリを開きました。内容を確認して送信してください。", vbInformation, "完了"
+    
+    Exit Sub
+    
+ErrorHandler:
+    Dim errorMsg As String
+    errorMsg = "エラーが発生しました:" & vbCrLf & vbCrLf
+    errorMsg = errorMsg & "エラー番号: " & Err.Number & vbCrLf
+    errorMsg = errorMsg & "エラー内容: " & Err.Description & vbCrLf & vbCrLf
+    
+    Select Case Err.Number
+        Case 5
+            errorMsg = errorMsg & "プロシージャの呼び出しエラーです。" & vbCrLf & vbCrLf
+            errorMsg = errorMsg & "【Mac環境の場合】" & vbCrLf
+            errorMsg = errorMsg & "システム環境設定 → セキュリティとプライバシー → プライバシー" & vbCrLf
+            errorMsg = errorMsg & "「自動操作」にExcelを追加してください。" & vbCrLf & vbCrLf
+            errorMsg = errorMsg & "または、mailto:リンクが長すぎる可能性があります。" & vbCrLf
+            errorMsg = errorMsg & "メール本文を短くするか、別の方法をお試しください。"
+        Case 13
+            errorMsg = errorMsg & "データ型のエラーです。" & vbCrLf
+            errorMsg = errorMsg & "セルの値が正しい形式か確認してください。"
+        Case Else
+            errorMsg = errorMsg & "予期しないエラーが発生しました。"
+    End Select
+    
+    MsgBox errorMsg, vbCritical, "エラー"
+End Sub
+
+' ============================================
+' URLエンコード関数（mailto:リンク用）
+' ============================================
+Function EncodeURL(text As String) As String
+    Dim result As String
+    Dim i As Integer
+    Dim char As String
+    
+    result = ""
+    For i = 1 To Len(text)
+        char = Mid(text, i, 1)
+        Select Case char
+            Case " "
+                result = result & "%20"
+            Case vbCrLf
+                result = result & "%0D%0A"
+            Case "&"
+                result = result & "%26"
+            Case "="
+                result = result & "%3D"
+            Case "?"
+                result = result & "%3F"
+            Case "#"
+                result = result & "%23"
+            Case "%"
+                result = result & "%25"
+            Case "+"
+                result = result & "%2B"
+            Case Else
+                result = result & char
+        End Select
+    Next i
+    
+    EncodeURL = result
+End Function
+
+' ============================================
+' テーブル形式のデータを取得してメールを作成
+' ============================================
+Sub CreateEmailFromTable()
+    Dim olApp As Object
+    Dim olMail As Object
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+    
+    ' Outlook を起動
+    Set olApp = CreateObject("Outlook.Application")
+    Set olMail = olApp.CreateItem(0)
+    
+    ' メールの基本情報をセルから取得
+    olMail.To = ws.Range("B1").Value      ' 宛先（B1セル）
+    olMail.Subject = ws.Range("B2").Value ' 件名（B2セル）
+    
+    ' データテーブルの範囲を取得（A4から始まると仮定）
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    
+    ' メール本文を作成
+    Dim bodyText As String
+    bodyText = "お世話になっております。" & vbCrLf & vbCrLf
+    bodyText = bodyText & "以下のデータをご確認ください。" & vbCrLf & vbCrLf
+    
+    ' テーブルの見出しを取得（4行目を想定）
+    Dim headerRow As Integer
+    headerRow = 4
+    
+    ' 見出しを取得
+    Dim headers As String
+    Dim col As Integer
+    headers = ""
+    For col = 1 To 4  ' A列からD列まで
+        If col > 1 Then headers = headers & " | "
+        headers = headers & ws.Cells(headerRow, col).Value
+    Next col
+    bodyText = bodyText & headers & vbCrLf
+    bodyText = bodyText & String(Len(headers), "-") & vbCrLf
+    
+    ' データ行を取得
+    Dim i As Long
+    For i = headerRow + 1 To lastRow
+        Dim rowData As String
+        rowData = ""
+        For col = 1 To 4
+            If col > 1 Then rowData = rowData & " | "
+            rowData = rowData & ws.Cells(i, col).Value
+        Next col
+        bodyText = bodyText & rowData & vbCrLf
+    Next i
+    
+    bodyText = bodyText & vbCrLf & "よろしくお願いいたします。"
+    
+    ' メール本文を設定
+    olMail.Body = bodyText
+    
+    ' メールを表示
+    olMail.Display
+End Sub
+
+' ============================================
+' 各行ごとに個別のメールを作成
+' ============================================
+Sub CreateMultipleEmails()
+    Dim olApp As Object
+    Dim olMail As Object
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+    
+    ' Outlook を起動
+    Set olApp = CreateObject("Outlook.Application")
+    
+    ' データの開始行（2行目からデータがあると仮定、1行目は見出し）
+    Dim startRow As Long
+    Dim lastRow As Long
+    startRow = 2
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    
+    Dim i As Long
+    For i = startRow To lastRow
+        ' 各行からデータを取得
+        Dim recipient As String
+        Dim name As String
+        Dim amount As Double
+        Dim dateValue As Date
+        
+        recipient = ws.Cells(i, 1).Value  ' A列: 宛先メールアドレス
+        name = ws.Cells(i, 2).Value       ' B列: 名前
+        amount = ws.Cells(i, 3).Value      ' C列: 金額
+        dateValue = ws.Cells(i, 4).Value   ' D列: 日付
+        
+        ' 空の行はスキップ
+        If recipient = "" Then GoTo NextRow
+        
+        ' メールを作成
+        Set olMail = olApp.CreateItem(0)
+        
+        ' メール本文を作成
+        Dim bodyText As String
+        bodyText = name & " 様" & vbCrLf & vbCrLf
+        bodyText = bodyText & "お世話になっております。" & vbCrLf & vbCrLf
+        bodyText = bodyText & "以下の内容をご確認ください。" & vbCrLf & vbCrLf
+        bodyText = bodyText & "金額: " & Format(amount, "#,##0") & "円" & vbCrLf
+        bodyText = bodyText & "日付: " & Format(dateValue, "yyyy年mm月dd日") & vbCrLf & vbCrLf
+        bodyText = bodyText & "よろしくお願いいたします。"
+        
+        ' メールの設定
+        olMail.To = recipient
+        olMail.Subject = name & "様へのご連絡"
+        olMail.Body = bodyText
+        
+        ' メールを表示
+        olMail.Display
+        
+NextRow:
+    Next i
+    
+    MsgBox lastRow - startRow + 1 & "件のメールを作成しました。"
+End Sub
+
+' ============================================
+' Excelの範囲をHTML形式でメールに貼り付け
+' ============================================
+Sub CreateEmailWithExcelTable()
+    Dim olApp As Object
+    Dim olMail As Object
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+    
+    ' Outlook を起動
+    Set olApp = CreateObject("Outlook.Application")
+    Set olMail = olApp.CreateItem(0)
+    
+    ' メールの基本設定
+    olMail.To = ws.Range("B1").Value      ' 宛先
+    olMail.Subject = ws.Range("B2").Value ' 件名
+    
+    ' Excelの範囲を指定
+    Dim dataRange As Range
+    Set dataRange = ws.Range("A4:D10")  ' 必要に応じて範囲を変更
+    
+    ' 範囲をコピー
+    dataRange.Copy
+    
+    ' メール本文を作成
+    Dim bodyText As String
+    bodyText = "お世話になっております。" & vbCrLf & vbCrLf
+    bodyText = bodyText & "以下のデータをご確認ください。" & vbCrLf & vbCrLf
+    olMail.Body = bodyText
+    
+    ' HTML形式でメール本文に貼り付け
+    olMail.HTMLBody = bodyText & "<br><br>"
+    olMail.GetInspector
+    
+    ' クリップボードから貼り付け（手動操作をシミュレート）
+    ' 注意: この方法はOutlookのバージョンによって動作が異なる場合があります
+    Application.Wait Now + TimeValue("00:00:01")  ' 少し待機
+    SendKeys "^v", True  ' Ctrl+V を送信
+    
+    ' より確実な方法: 範囲をHTMLに変換
+    ' この場合は、範囲をHTMLテーブルとして作成する必要があります
+    
+    ' メールを表示
+    olMail.Display
+End Sub
+
+' ============================================
 ' エラーハンドリング
 ' ============================================
 Sub ErrorHandlingExample()
